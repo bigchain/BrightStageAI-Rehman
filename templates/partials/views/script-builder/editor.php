@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
 }
 ?>
 
-<div class="bg-white shadow rounded-lg p-6">
+<div x-data="brightsideApp()" class="bg-white shadow rounded-lg p-6">
     <div class="space-y-6">
         <!-- Description Section -->
         <div>
@@ -116,7 +116,7 @@ if (!defined('ABSPATH')) {
                     <div class="ml-3">
                         <h3 class="text-sm font-medium text-blue-800">Description Enhanced</h3>
                         <div class="mt-2 text-sm text-blue-700">
-                            <p>Your description has been enhanced. Click 'Generate Content' to create your slides and narration.</p>
+                            <p>Your description has been enhanced. Click 'Generate Script' to create your slides and narration.</p>
                         </div>
                     </div>
                 </div>
@@ -132,6 +132,7 @@ if (!defined('ABSPATH')) {
                         x-model="slideContent"
                         rows="12"
                         class="mt-2 shadow-sm block w-full sm:text-sm border-gray-300 rounded-md font-mono"
+                        readonly
                     ></textarea>
                 </div>
 
@@ -141,6 +142,7 @@ if (!defined('ABSPATH')) {
                         x-model="narrationText"
                         rows="8"
                         class="mt-2 shadow-sm block w-full sm:text-sm border-gray-300 rounded-md"
+                        readonly
                     ></textarea>
                 </div>
             </div>

@@ -8,6 +8,9 @@ class BrightsideAI {
 
         // Add defer attribute to Alpine.js
         add_filter('script_loader_tag', array($this, 'add_defer_attribute'), 10, 2);
+
+        // Add action for saving prompts
+        add_action('admin_post_brightsideai_save_prompts', array($this, 'save_prompts'));
     }
 
     public function init() {
@@ -113,7 +116,7 @@ class BrightsideAI {
                 'brightsideaiConfig',
                 array(
                     'ajaxUrl' => admin_url('admin-ajax.php'),
-                    'nonce' => wp_create_nonce('brightsideai-nonce')
+                    'nonce' => wp_create_nonce('brightsideai_nonce')
                 )
             );
     
@@ -126,7 +129,7 @@ class BrightsideAI {
                 true
             );
     
-            // Enqueue scripts
+            // Enqueue scripts in correct order
             wp_enqueue_script('alpinejs');
             wp_enqueue_script('brightsideai-app');
 
@@ -134,7 +137,7 @@ class BrightsideAI {
             wp_enqueue_script(
                 'brightsideai-frontend-init',
                 BRIGHTSIDEAI_URL . 'assets/js/alpine-init-frontend.js',
-                array('alpinejs'),
+                array('alpinejs', 'brightsideai-app'),
                 BRIGHTSIDEAI_VERSION,
                 true
             );
@@ -175,9 +178,35 @@ class BrightsideAI {
         }
     }
 
+    public function save_prompts() {
+        if (!current_user_can('manage_options')) {
+            wp_die("Unauthorized");
+        }
+        
+        check_admin_referer('brightsideai_save_prompts');
+        
+        $prompts = array(
+            'brightsideai_enhance_prompt' => isset($_POST['brightsideai_enhance_prompt']) ? wp_kses_post($_POST['brightsideai_enhance_prompt']) : '',
+            'brightsideai_slides_prompt' => isset($_POST['brightsideai_slides_prompt']) ? wp_kses_post($_POST['brightsideai_slides_prompt']) : '',
+            'brightsideai_narration_prompt' => isset($_POST['brightsideai_narration_prompt']) ? wp_kses_post($_POST['brightsideai_narration_prompt']) : ''
+        );
+        
+        foreach ($prompts as $option_name => $value) {
+            update_option($option_name, $value);
+        }
+        
+        wp_redirect(add_query_arg('updated', 'true', wp_get_referer()));
+        exit;
+    }
+
     public function generate_text() {
         check_ajax_referer('brightsideai_nonce', 'nonce');
+        
+        // Get the prompt and type (if provided)
         $prompt = isset($_POST['prompt']) ? sanitize_text_field($_POST['prompt']) : "";
+        $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : "custom";
+        
+        // Get the API key
         $api_key = get_option('brightsideai_openai_key', '');
         if (empty($api_key)) {
             wp_send_json_error("OpenAI API key not set.");
@@ -186,15 +215,51 @@ class BrightsideAI {
             wp_send_json_error("Prompt is empty.");
         }
         
+        // If this is a specific type of generation, prepend the appropriate saved prompt
+        switch($type) {
+            case 'enhance':
+                $system_prompt = "You are a professional webinar description writer. Your task is to enhance the given webinar description into a compelling and professional version while preserving its core message. Follow these guidelines:
+
+                1. Start with an attention-grabbing hook related to the topic
+                2. Clearly identify the target audience
+                3. Transform any informal language into professional phrasing
+                4. Add 3-5 specific learning objectives
+                5. Include clear, practical takeaways
+                6. Use engaging, professional language
+                7. Keep the tone appropriate for the subject matter
+                8. Add a clear value proposition
+                9. Expand brief points into well-structured content
+                10. Maintain the original intent and key methods mentioned
+
+                Transform the following basic description into an engaging, professional webinar description that's between 100-200 words:";
+                break;
+            case 'slides':
+                $system_prompt = get_option('brightsideai_slides_prompt', 'Based on the following webinar description, generate a structured presentation outline in Markdown format. Include main sections with bullet points. Format it as a clear, professional presentation structure: ');
+                break;
+            case 'narration':
+                $system_prompt = get_option('brightsideai_narration_prompt', 'Create a natural, conversational narration script based on the following webinar description. Include an engaging introduction, clear explanations of key points, and a strong conclusion: ');
+                break;
+            default:
+                $system_prompt = '';
+        }
+        
+        // Prepare messages array
+        $messages = array();
+        if (!empty($system_prompt)) {
+            $messages[] = array(
+                "role" => "system",
+                "content" => $system_prompt
+            );
+        }
+        $messages[] = array(
+            "role" => "user",
+            "content" => $prompt
+        );
+        
         $body = array(
             "model" => "gpt-3.5-turbo",
-            "messages" => array(
-                array(
-                    "role" => "user",
-                    "content" => $prompt
-                )
-            ),
-            "max_tokens" => 150,
+            "messages" => $messages,
+            "max_tokens" => 1000,
             "temperature" => 0.7
         );
         
@@ -204,7 +269,7 @@ class BrightsideAI {
                 "Authorization" => "Bearer $api_key"
             ),
             "body" => json_encode($body),
-            "timeout" => 15,
+            "timeout" => 30,
         );
         
         $response = wp_remote_post("https://api.openai.com/v1/chat/completions", $args);

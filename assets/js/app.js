@@ -207,41 +207,52 @@ document.addEventListener('alpine:init', () => {
 
         // Script Builder Methods
         async enhanceDescription() {
-            if (!this.webinarDescription) {
-                this.showToast('Description Required', 'Please enter a webinar description first', 'error');
+            console.log('Enhancing description...'); // Debug log
+            if (!this.webinarDescription || this.isEnhancing) {
+                console.log('No description or already enhancing'); // Debug log
                 return;
             }
-        
-            this.isEnhancing = true; // Using new state
+            
+            this.isEnhancing = true;
+            this.error = null;
+
             try {
-                // Simulate AI enhancement
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                console.log('Making API request...'); // Debug log
+                const formData = new URLSearchParams();
+                formData.append('action', 'brightsideai_generate_text');
+                formData.append('prompt', this.webinarDescription);
+                formData.append('type', 'enhance');
+                formData.append('nonce', brightsideaiConfig.nonce);
+
+                console.log('Request data:', {
+                    url: brightsideaiConfig.ajaxUrl,
+                    nonce: brightsideaiConfig.nonce,
+                    prompt: this.webinarDescription
+                }); // Debug log
+
+                const response = await fetch(brightsideaiConfig.ajaxUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                    },
+                    body: formData.toString()
+                });
+
+                const data = await response.json();
+                console.log('API response:', data); // Debug log
                 
-                const enhanced = `This comprehensive webinar will guide marketing professionals through the latest digital marketing strategies for 2024. 
-        
-        Key Learning Objectives:
-        1. Master data-driven decision making in marketing
-        2. Implement AI-powered automation techniques
-        3. Optimize cross-channel campaign performance
-        
-        Target Audience: Marketing managers and digital marketing specialists looking to leverage cutting-edge technologies.
-        
-        Specific Takeaways:
-        - Practical frameworks for marketing automation
-        - Real-world case studies and success stories
-        - Ready-to-use templates and workflows`;
-        
-                this.enhancedDescription = enhanced; // Set enhanced description
-                this.webinarDescription = enhanced;  // Update the form
-                
-                if (this.currentProject) {
-                    this.currentProject.detailedDescription = enhanced;
-                    this.updateProject(this.currentProject);
+                if (data.success) {
+                    this.enhancedDescription = data.data;
+                    this.webinarDescription = data.data; // Update the textarea with enhanced content
+                    this.showToast('Success', 'Description enhanced successfully!', 'success');
+                } else {
+                    this.error = data.data || 'Error enhancing description';
+                    this.showToast('Error', this.error, 'error');
                 }
-        
-                this.showToast('Description Enhanced', 'Your webinar description has been enhanced with AI.');
             } catch (error) {
-                this.showToast('Enhancement Failed', 'Failed to enhance description. Please try again.', 'error');
+                console.error('Error:', error);
+                this.error = 'Failed to enhance description. Please try again.';
+                this.showToast('Error', this.error, 'error');
             } finally {
                 this.isEnhancing = false;
             }
