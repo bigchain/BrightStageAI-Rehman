@@ -27,9 +27,6 @@ class BrightsideAI {
         // New credits endpoints
         add_action('wp_ajax_brightsideai_update_credits', array($this, 'update_credits'));
         add_action('wp_ajax_brightsideai_get_credits', array($this, 'get_credits'));
-
-        // Add AJAX action for getting project
-        add_action('wp_ajax_brightsideai_get_project', array($this, 'get_project'));
     }
 
     public function init() {
@@ -221,156 +218,98 @@ class BrightsideAI {
     public function generate_text() {
         check_ajax_referer('brightsideai_nonce', 'nonce');
         
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error('Unauthorized');
-            return;
-        }
-
         $prompt = isset($_POST['prompt']) ? sanitize_text_field($_POST['prompt']) : '';
-        $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : 'custom';
-
+        $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : 'enhance';
+        
         if (empty($prompt)) {
             wp_send_json_error('Prompt is required');
             return;
         }
 
         try {
-            $api_key = get_option('brightsideai_openai_api_key');
+            $api_key = get_option('brightsideai_openai_key');
             if (!$api_key) {
-                wp_send_json_error('OpenAI API key not configured');
+                wp_send_json_error('OpenAI API key is not configured');
                 return;
             }
 
-            // Log the request
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('BrightsideAI: Generating text for type: ' . $type);
-                error_log('BrightsideAI: Prompt: ' . $prompt);
-            }
-
-            $system_message = '';
+            $system_prompt = '';
             switch ($type) {
                 case 'enhance':
-                    $system_message = "You are an expert webinar content writer. Your task is to enhance the given webinar description to be more engaging and informative while maintaining its core message. Include:
-                    1. A clear definition of the target audience
-                    2. 3-5 specific learning objectives
-                    3. Key takeaways or benefits
-                    4. A structured outline of the content
-                    
-                    Keep the tone professional yet engaging, and ensure the description is between 500-1000 characters.";
+                    $system_prompt = "You are a professional content writer specializing in webinar descriptions. Your task is to enhance the given webinar description while maintaining its core message. Make it more engaging, professional, and compelling. Focus on clarity, value proposition, and audience benefits.";
                     break;
+                    
                 case 'slides':
-                    $system_message = "You are an expert presentation designer. Create a sequence of slide content based on the webinar description. Format as:
-
-                    Slide 1: [Title]
-                    - [Bullet point]
-                    - [Bullet point]
-                    
-                    Slide 2: [Title]
-                    - [Bullet point]
-                    - [Bullet point]
-                    
-                    Create 8-12 slides with clear, concise bullet points. Focus on maintaining a logical flow and covering all key points from the description.";
+                    $system_prompt = "You are a professional presentation designer. Create a well-structured slide outline based on the webinar description. Format the output in Markdown with clear sections and bullet points. Each section should have a title and 3-5 key points. Focus on creating a logical flow that will engage the audience.";
                     break;
+                    
                 case 'narration':
-                    $system_message = "You are an expert presentation narrator. Create natural, conversational narration script for each slide. Format as:
-                    
-                    [Slide 1]
-                    'Narration text that naturally introduces the topic...'
-                    
-                    [Slide 2]
-                    'Narration text that flows from previous slide...'
-                    
-                    Make it engaging and conversational while maintaining professionalism. Ensure smooth transitions between slides.";
+                    $system_prompt = "You are a professional speaker and presentation coach. Create a natural, engaging narration script based on the webinar description. The narration should flow naturally, be conversational yet professional, and effectively convey the key messages. Include clear transitions between topics.";
                     break;
+                    
                 default:
                     wp_send_json_error('Invalid generation type');
                     return;
             }
 
-            $messages = array(
-                array(
-                    'role' => 'system',
-                    'content' => $system_message
-                ),
-                array(
-                    'role' => 'user',
-                    'content' => $prompt
-                )
-            );
-
             $body = array(
-                'model' => 'gpt-3.5-turbo',
-                'messages' => $messages,
-                'max_tokens' => 2000,
+                'model' => 'gpt-4',
+                'messages' => array(
+                    array(
+                        'role' => 'system',
+                        'content' => $system_prompt
+                    ),
+                    array(
+                        'role' => 'user',
+                        'content' => $prompt
+                    )
+                ),
                 'temperature' => 0.7,
-                'top_p' => 1,
-                'frequency_penalty' => 0,
-                'presence_penalty' => 0
+                'max_tokens' => 1000
             );
 
-            $response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+            $args = array(
                 'headers' => array(
                     'Authorization' => 'Bearer ' . $api_key,
                     'Content-Type' => 'application/json'
                 ),
                 'body' => json_encode($body),
-                'timeout' => 60,
-                'data_format' => 'body'
-            ));
+                'method' => 'POST',
+                'data_format' => 'body',
+                'timeout' => 45 // Increased timeout for GPT-4
+            );
+
+            error_log('Making OpenAI request for type: ' . $type);
+            $response = wp_remote_post('https://api.openai.com/v1/chat/completions', $args);
 
             if (is_wp_error($response)) {
-                $this->log_error('OpenAI API request failed', array(
-                    'error' => $response->get_error_message(),
-                    'type' => $type,
-                    'prompt' => $prompt
-                ));
-                wp_send_json_error('Failed to connect to OpenAI API: ' . $response->get_error_message());
+                error_log('BrightsideAI OpenAI API Error: ' . $response->get_error_message());
+                wp_send_json_error('Failed to connect to OpenAI API. Please try again.');
                 return;
             }
 
             $response_code = wp_remote_retrieve_response_code($response);
-            $response_body = json_decode(wp_remote_retrieve_body($response), true);
-
             if ($response_code !== 200) {
-                $this->log_error('OpenAI API error response', array(
-                    'code' => $response_code,
-                    'body' => $response_body,
-                    'type' => $type,
-                    'prompt' => $prompt
-                ));
-                $error_message = isset($response_body['error']['message']) 
-                    ? $response_body['error']['message'] 
-                    : 'OpenAI API returned an error';
-                wp_send_json_error($error_message);
+                error_log('BrightsideAI OpenAI API Error: Non-200 response code: ' . $response_code);
+                error_log('Response body: ' . wp_remote_retrieve_body($response));
+                wp_send_json_error('OpenAI API returned an error. Please try again.');
                 return;
             }
 
-            if (!isset($response_body['choices'][0]['message']['content'])) {
-                $this->log_error('Unexpected OpenAI API response format', array(
-                    'body' => $response_body,
-                    'type' => $type,
-                    'prompt' => $prompt
-                ));
-                wp_send_json_error('Unexpected API response format');
+            $result = json_decode(wp_remote_retrieve_body($response), true);
+            if (!isset($result['choices'][0]['message']['content'])) {
+                error_log('BrightsideAI OpenAI API Error: Unexpected response format');
+                error_log('Response: ' . print_r($result, true));
+                wp_send_json_error('Invalid response from OpenAI API. Please try again.');
                 return;
             }
 
-            $generated_text = $response_body['choices'][0]['message']['content'];
-
-            // Log success
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('BrightsideAI: Successfully generated text for type: ' . $type);
-            }
-
+            $generated_text = $result['choices'][0]['message']['content'];
             wp_send_json_success($generated_text);
 
         } catch (Exception $e) {
-            $this->log_error('Exception in generate_text', array(
-                'error' => $e->getMessage(),
-                'type' => $type,
-                'prompt' => $prompt
-            ));
-            wp_send_json_error('Failed to generate text: ' . $e->getMessage());
+            error_log('BrightsideAI OpenAI API Error: ' . $e->getMessage());
+            wp_send_json_error('Failed to generate text. Please try again.');
         }
     }
 
@@ -412,8 +351,8 @@ class BrightsideAI {
             return;
         }
 
-        $project_data = isset($_POST['project']) ? json_decode(stripslashes($_POST['project']), true) : null;
-        if (!$project_data || !isset($project_data['id'])) {
+        $project_data = json_decode(stripslashes($_POST['project']), true);
+        if (!$project_data) {
             wp_send_json_error('Invalid project data');
             return;
         }
@@ -421,57 +360,62 @@ class BrightsideAI {
         global $wpdb;
         $table_name = $wpdb->prefix . 'brightsideai_projects';
         
-        // Log the incoming project data
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Saving project data: ' . print_r($project_data, true));
-        }
-
-        // Map camelCase to underscore fields
         $data = array(
-            'title' => sanitize_text_field($project_data['title']),
-            'description' => wp_kses_post($project_data['description'] ?? ''),
-            'enhanced_description' => wp_kses_post($project_data['enhancedDescription'] ?? ''),
-            'script' => wp_kses_post($project_data['script'] ?? ''),
-            'narration' => wp_kses_post($project_data['narration'] ?? ''),
-            'duration' => sanitize_text_field($project_data['duration'] ?? '15m'),
-            'updated_at' => current_time('mysql')
+            'user_id' => get_current_user_id(),
+            'name' => sanitize_text_field($project_data['name']),
+            'short_description' => sanitize_textarea_field($project_data['shortDescription']),
+            'detailed_description' => sanitize_textarea_field($project_data['detailedDescription']),
+            'enhanced_description' => sanitize_textarea_field($project_data['enhancedDescription']),
+            'script' => sanitize_textarea_field($project_data['script']),
+            'narration' => sanitize_textarea_field($project_data['narration']),
+            'duration' => intval($project_data['duration']),
+            'credits_used' => intval($project_data['creditsUsed']),
+            'progress' => intval($project_data['progress']),
+            'archived' => intval($project_data['archived']),
+            'promo_pack' => json_encode($project_data['promoPack']),
+            'assets' => json_encode($project_data['assets'])
         );
 
-        $where = array(
-            'id' => $project_data['id'],
-            'user_id' => get_current_user_id()
+        $format = array(
+            '%d', // user_id
+            '%s', // name
+            '%s', // short_description
+            '%s', // detailed_description
+            '%s', // enhanced_description
+            '%s', // script
+            '%s', // narration
+            '%d', // duration
+            '%d', // credits_used
+            '%d', // progress
+            '%d', // archived
+            '%s', // promo_pack
+            '%s'  // assets
         );
 
-        $result = $wpdb->update($table_name, $data, $where);
+        if (isset($project_data['id']) && $project_data['id']) {
+            // Update existing project
+            $wpdb->update(
+                $table_name,
+                $data,
+                array('id' => intval($project_data['id']), 'user_id' => get_current_user_id()),
+                $format,
+                array('%d', '%d')
+            );
+            $project_id = intval($project_data['id']);
+        } else {
+            // Insert new project
+            $wpdb->insert($table_name, $data, $format);
+            $project_id = $wpdb->insert_id;
+        }
 
-        if ($result === false) {
-            $this->log_error('Failed to save project', array(
-                'error' => $wpdb->last_error,
-                'project_data' => $project_data
+        if ($project_id) {
+            wp_send_json_success(array(
+                'message' => 'Project saved successfully',
+                'project_id' => $project_id
             ));
-            wp_send_json_error('Failed to save project: ' . $wpdb->last_error);
-            return;
+        } else {
+            wp_send_json_error('Failed to save project');
         }
-
-        // Get the updated project data
-        $updated_project = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM $table_name WHERE id = %d AND user_id = %d",
-                $project_data['id'],
-                get_current_user_id()
-            ),
-            ARRAY_A
-        );
-
-        // Convert DB field names to camelCase for JS
-        if(isset($updated_project['enhanced_description'])) {
-            $updated_project['enhancedDescription'] = $updated_project['enhanced_description'];
-        }
-        if(isset($updated_project['detailed_description'])) {
-            $updated_project['description'] = $updated_project['detailed_description'];
-        }
-
-        wp_send_json_success($updated_project);
     }
 
     public function get_projects() {
@@ -487,23 +431,38 @@ class BrightsideAI {
         
         $projects = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC",
+                "SELECT * FROM $table_name WHERE user_id = %d ORDER BY last_modified DESC",
                 get_current_user_id()
             ),
             ARRAY_A
         );
 
-        // Convert field names for all projects
-        foreach ($projects as &$project) {
-            if(isset($project['enhanced_description'])) {
-                $project['enhancedDescription'] = $project['enhanced_description'];
-            }
-            if(isset($project['detailed_description'])) {
-                $project['description'] = $project['detailed_description'];
-            }
-        }
+        if ($projects !== null) {
+            // Format the projects for frontend
+            $formatted_projects = array_map(function($project) {
+                return array(
+                    'id' => $project['id'],
+                    'name' => $project['name'],
+                    'shortDescription' => $project['short_description'],
+                    'detailedDescription' => $project['detailed_description'],
+                    'enhancedDescription' => $project['enhanced_description'],
+                    'script' => $project['script'],
+                    'narration' => $project['narration'],
+                    'duration' => intval($project['duration']),
+                    'creditsUsed' => intval($project['credits_used']),
+                    'progress' => intval($project['progress']),
+                    'createdAt' => $project['created_at'],
+                    'lastModified' => $project['last_modified'],
+                    'archived' => (bool)$project['archived'],
+                    'promoPack' => json_decode($project['promo_pack'], true),
+                    'assets' => json_decode($project['assets'], true)
+                );
+            }, $projects);
 
-        wp_send_json_success($projects);
+            wp_send_json_success($formatted_projects);
+        } else {
+            wp_send_json_error('Failed to retrieve projects');
+        }
     }
 
     public function delete_project() {
@@ -537,61 +496,6 @@ class BrightsideAI {
         } else {
             wp_send_json_error('Failed to delete project');
         }
-    }
-
-    public function get_project() {
-        check_ajax_referer('brightsideai_nonce', 'nonce');
-        
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error('Unauthorized');
-            return;
-        }
-
-        $project_id = isset($_POST['project_id']) ? intval($_POST['project_id']) : 0;
-        if (!$project_id) {
-            wp_send_json_error('Invalid project ID');
-            return;
-        }
-
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'brightsideai_projects';
-        
-        $project = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM $table_name WHERE id = %d AND user_id = %d",
-                $project_id,
-                get_current_user_id()
-            ),
-            ARRAY_A
-        );
-
-        if (!$project) {
-            wp_send_json_error('Project not found');
-            return;
-        }
-
-        // Convert DB field names to camelCase expected by JS
-        $project = (array) $project;
-
-        if(isset($project['enhanced_description'])) {
-            $project['enhancedDescription'] = $project['enhanced_description'];
-        } else {
-            $project['enhancedDescription'] = '';
-        }
-
-        // If needed, map detailed_description to description; otherwise, keep description intact
-        if(isset($project['detailed_description'])) {
-            $project['description'] = $project['detailed_description'];
-        } elseif(!isset($project['description'])) {
-            $project['description'] = '';
-        }
-
-        // Log the project data being returned
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Project data retrieved: ' . print_r($project, true));
-        }
-
-        wp_send_json_success($project);
     }
 
     public function update_credits() {

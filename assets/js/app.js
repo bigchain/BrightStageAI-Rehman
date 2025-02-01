@@ -88,140 +88,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async createProject() {
-            if (!this.newProjectName || !this.newProjectDescription) {
-                this.showToast('Error', 'Please provide both a name and description for your project.', 'error');
-                return;
-            }
-
-            try {
-                const formData = new URLSearchParams();
-                formData.append('action', 'brightsideai_save_project');
-                formData.append('nonce', brightsideaiConfig.nonce);
-                
-                const newProject = {
-                    title: this.newProjectName,
-                    description: this.newProjectDescription,
-                    enhancedDescription: '',
-                    script: '',
-                    narration: '',
-                    duration: '15m'
-                };
-
-                formData.append('project', JSON.stringify(newProject));
-
-                const response = await fetch(brightsideaiConfig.ajaxUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                    },
-                    body: formData.toString()
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    // Refresh projects list
-                    await this.loadProjects();
-                    
-                    // Clear the form
-                    this.newProjectName = '';
-                    this.newProjectDescription = '';
-                    this.showNewProjectModal = false;
-                    
-                    // Set as current project
-                    this.setCurrentProject(result.data);
-                    
-                    this.showToast('Success', 'Project created successfully!', 'success');
-                } else {
-                    throw new Error(result.data || 'Failed to create project');
-                }
-            } catch (error) {
-                console.error('Project creation error:', error);
-                this.showToast('Error', error.message || 'Failed to create project', 'error');
-            }
-        },
-
-        async loadProjects() {
-            try {
-                const formData = new URLSearchParams();
-                formData.append('action', 'brightsideai_get_projects');
-                formData.append('nonce', brightsideaiConfig.nonce);
-
-                const response = await fetch(brightsideaiConfig.ajaxUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                    },
-                    body: formData.toString()
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    this.projects = result.data;
-                    console.log('Projects loaded:', this.projects); // Debug log
-                } else {
-                    throw new Error(result.data || 'Failed to load projects');
-                }
-            } catch (error) {
-                console.error('Project loading error:', error);
-                this.showToast('Error', error.message || 'Failed to load projects', 'error');
-            }
-        },
-
-        async setCurrentProject(project) {
-            console.log('Setting current project:', project); // Debug log
-            
-            if (!project) {
-                console.log('No project provided to setCurrentProject'); // Debug log
-                this.currentProject = null;
-                this.clearProjectState();
-                return;
-            }
-
-            try {
-                // Load fresh project data
-                const formData = new URLSearchParams();
-                formData.append('action', 'brightsideai_get_project');
-                formData.append('nonce', brightsideaiConfig.nonce);
-                formData.append('project_id', project.id);
-
-                const response = await fetch(brightsideaiConfig.ajaxUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                    },
-                    body: formData.toString()
-                });
-
-                const result = await response.json();
-                console.log('Project load result:', result); // Debug log
-
-                if (result.success) {
-                    // Clear previous state
-                    this.clearProjectState();
-                    
-                    // Set new project and update UI state
-                    this.currentProject = result.data;
-                    this.webinarDescription = this.currentProject.description || '';
-                    this.enhancedDescription = this.currentProject.enhancedDescription || '';
-                    this.slideContent = this.currentProject.script || '';
-                    this.narrationText = this.currentProject.narration || '';
-                    this.webinarDuration = this.currentProject.duration || '15m';
-                    
-                    console.log('Project state updated:', {
-                        currentProject: this.currentProject,
-                        webinarDescription: this.webinarDescription,
-                        enhancedDescription: this.enhancedDescription
-                    }); // Debug log
-                } else {
-                    throw new Error(result.data || 'Failed to load project data');
-                }
-            } catch (error) {
-                console.error('Error in setCurrentProject:', error);
-                this.showToast('Error', error.message || 'Failed to load project data', 'error');
-            }
-        },
-
         async saveChanges() {
             console.log('Saving changes...'); // Debug log
             this.isSaving = true;
@@ -331,7 +197,118 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async editProject(project) {
+        createProject() {
+            console.log('Creating new project...'); // Debug log
+            
+            if (!this.newProjectName || !this.newProjectDescription) {
+                this.showToast('Error', 'Please provide both a name and description for your project.', 'error');
+                return;
+            }
+        
+            const newProject = {
+                id: Date.now().toString(),
+                name: this.newProjectName,
+                shortDescription: this.newProjectDescription,
+                detailedDescription: '',
+                enhancedDescription: '',
+                script: '',
+                narration: '',
+                duration: 30,
+                creditsUsed: 0,
+                progress: 0,
+                lastModified: new Date(),
+                createdAt: new Date(),
+                archived: false,
+                promoPack: {
+                    pressRelease: '',
+                    socialPosts: '',
+                    emailSequence: '',
+                    miniEbook: ''
+                },
+                assets: [
+                    { type: 'script', content: '', status: 'not started' },
+                    { type: 'slides', content: '', status: 'not started' },
+                    { type: 'narration', content: '', status: 'not started' },
+                    { type: 'emailSequence', content: '', status: 'not started' },
+                    { type: 'socialPosts', content: '', status: 'not started' }
+                ]
+            };
+            
+            console.log('New project created:', newProject); // Debug log
+        
+            this.projects.push(newProject);
+            
+            // Save the new project to WordPress database
+            const formData = new URLSearchParams();
+            formData.append('action', 'brightsideai_save_project');
+            formData.append('nonce', brightsideaiConfig.nonce);
+            formData.append('project', JSON.stringify(newProject));
+
+            fetch(brightsideaiConfig.ajaxUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                },
+                body: formData.toString()
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    console.log('Project saved successfully:', result); // Debug log
+                    this.showToast('Success', 'Your new project has been created successfully.', 'success');
+                } else {
+                    console.error('Failed to save project:', result); // Debug log
+                    this.showToast('Error', 'Failed to create project. Please try again.', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Save error:', error); // Debug log
+                this.showToast('Error', 'Failed to create project. Please try again.', 'error');
+            });
+            
+            // Reset form
+            this.showNewProjectModal = false;
+            this.newProjectName = '';
+            this.newProjectDescription = '';
+            
+            // Optionally, switch to the new project
+            this.setCurrentProject(newProject);
+        },
+
+        setCurrentProject(project) {
+            console.log('Setting current project:', project.id); // Debug log
+            
+            // Set current project
+            this.currentProject = project;
+            
+            // Load all saved content
+            this.webinarDescription = project.detailedDescription || '';
+            this.enhancedDescription = project.enhancedDescription || '';
+            this.slideContent = project.script || '';
+            this.narrationText = project.narration || '';
+            this.webinarDuration = project.duration || 30;
+            
+            // Switch to project view
+            this.view = 'project';
+            this.scriptBuilderStep = 'editor';
+            
+            console.log('Project data loaded:', {
+                description: this.webinarDescription,
+                enhanced: this.enhancedDescription,
+                slides: this.slideContent,
+                narration: this.narrationText
+            }); // Debug log
+        },
+
+        updateProject(project) {
+            const index = this.projects.findIndex(p => p.id === project.id);
+            if (index !== -1) {
+                this.projects[index] = project;
+                this.currentProject = project;
+            }
+        },
+
+        editProject(project) {
             // Create a copy of the project to edit
             this.editingProject = {
                 id: project.id,
@@ -347,7 +324,7 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async saveProjectChanges() {
+        saveProjectChanges() {
             if (!this.editingProject.name || !this.editingProject.shortDescription) return;
         
             // Find and update the project
@@ -416,31 +393,29 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        // Script Builder Methods
         async enhanceDescription() {
-            console.log('Enhance called. Current project:', this.currentProject); // Debug log
+            console.log('Enhancing description...'); // Debug log
+            if (!this.webinarDescription || this.isEnhancing) {
+                console.log('No description or already enhancing'); // Debug log
+                return;
+            }
             
-            if (!this.currentProject || !this.currentProject.id) {
-                console.error('No project selected or invalid project:', this.currentProject);
-                this.showToast('Error', 'Please select or create a project first.', 'error');
-                return;
-            }
-
-            if (!this.webinarDescription) {
-                this.showToast('Error', 'Please enter a description first.', 'error');
-                return;
-            }
-
             this.isEnhancing = true;
+            this.error = null;
+
             try {
+                console.log('Making API request...'); // Debug log
                 const formData = new URLSearchParams();
                 formData.append('action', 'brightsideai_generate_text');
-                formData.append('nonce', brightsideaiConfig.nonce);
                 formData.append('prompt', this.webinarDescription);
                 formData.append('type', 'enhance');
+                formData.append('nonce', brightsideaiConfig.nonce);
 
-                console.log('Sending enhance request with data:', {
-                    prompt: this.webinarDescription,
-                    projectId: this.currentProject.id
+                console.log('Request data:', {
+                    url: brightsideaiConfig.ajaxUrl,
+                    nonce: brightsideaiConfig.nonce,
+                    prompt: this.webinarDescription
                 }); // Debug log
 
                 const response = await fetch(brightsideaiConfig.ajaxUrl, {
@@ -451,141 +426,112 @@ document.addEventListener('alpine:init', () => {
                     body: formData.toString()
                 });
 
-                const result = await response.json();
-                console.log('Enhancement API response:', result); // Debug log
-
-                if (result.success) {
-                    // Update both the display and project data
-                    this.enhancedDescription = result.data;
-                    this.currentProject.enhancedDescription = result.data;
-                    
-                    // Save the changes to the database
-                    const updatedProject = {
-                        ...this.currentProject,
-                        enhancedDescription: result.data
-                    };
-
-                    console.log('Saving updated project:', updatedProject); // Debug log
-
-                    const saveFormData = new URLSearchParams();
-                    saveFormData.append('action', 'brightsideai_save_project');
-                    saveFormData.append('nonce', brightsideaiConfig.nonce);
-                    saveFormData.append('project', JSON.stringify(updatedProject));
-
-                    const saveResponse = await fetch(brightsideaiConfig.ajaxUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                        },
-                        body: saveFormData.toString()
-                    });
-
-                    const saveResult = await saveResponse.json();
-                    console.log('Save result:', saveResult); // Debug log
-
-                    if (saveResult.success) {
-                        this.showToast('Success', 'Description enhanced and saved successfully!', 'success');
-                    } else {
-                        throw new Error('Failed to save enhanced description');
-                    }
+                const data = await response.json();
+                console.log('API response:', data); // Debug log
+                
+                if (data.success) {
+                    this.enhancedDescription = data.data;
+                    this.webinarDescription = data.data; // Update the textarea with enhanced content
+                    this.showToast('Success', 'Description enhanced successfully!', 'success');
                 } else {
-                    throw new Error(result.data || 'Failed to enhance description');
+                    this.error = data.data || 'Error enhancing description';
+                    this.showToast('Error', this.error, 'error');
                 }
             } catch (error) {
-                console.error('Enhancement error:', error);
-                this.showToast('Error', error.message || 'Failed to enhance description. Please try again.', 'error');
+                console.error('Error:', error);
+                this.error = 'Failed to enhance description. Please try again.';
+                this.showToast('Error', this.error, 'error');
             } finally {
                 this.isEnhancing = false;
             }
         },
 
         async generateScript() {
-            if (!this.currentProject) {
-                this.showToast('Error', 'Please select or create a project first.', 'error');
-                return;
-            }
-
+            console.log('Generating script...'); // Debug log
             if (!this.enhancedDescription) {
-                this.showToast('Error', 'Please enhance the description first.', 'error');
+                console.log('No enhanced description available'); // Debug log
+                this.showToast('Error', 'Please enhance your description with AI first before generating the script.', 'error');
                 return;
             }
-
+            
+            if (this.isGenerating) {
+                console.log('Already generating script'); // Debug log
+                return;
+            }
+        
             this.isGenerating = true;
+            this.error = null;
+
             try {
+                console.log('Making API requests...'); // Debug log
+
                 // Generate slides
-                const slideFormData = new URLSearchParams();
-                slideFormData.append('action', 'brightsideai_generate_text');
-                slideFormData.append('nonce', brightsideaiConfig.nonce);
-                slideFormData.append('prompt', this.enhancedDescription);
-                slideFormData.append('type', 'slides');
+                const slidesData = new URLSearchParams();
+                slidesData.append('action', 'brightsideai_generate_text');
+                slidesData.append('prompt', this.enhancedDescription);
+                slidesData.append('type', 'slides');
+                slidesData.append('nonce', brightsideaiConfig.nonce);
 
-                const narrationFormData = new URLSearchParams();
-                narrationFormData.append('action', 'brightsideai_generate_text');
-                narrationFormData.append('nonce', brightsideaiConfig.nonce);
-                narrationFormData.append('prompt', this.enhancedDescription);
-                narrationFormData.append('type', 'narration');
+                // Generate narration
+                const narrationData = new URLSearchParams();
+                narrationData.append('action', 'brightsideai_generate_text');
+                narrationData.append('prompt', this.enhancedDescription);
+                narrationData.append('type', 'narration');
+                narrationData.append('nonce', brightsideaiConfig.nonce);
 
-                const [slideResponse, narrationResponse] = await Promise.all([
+                console.log('Request data:', {
+                    url: brightsideaiConfig.ajaxUrl,
+                    nonce: brightsideaiConfig.nonce,
+                    prompt: this.enhancedDescription
+                }); // Debug log
+
+                // Make both requests in parallel
+                const [slidesResponse, narrationResponse] = await Promise.all([
                     fetch(brightsideaiConfig.ajaxUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
                         },
-                        body: slideFormData.toString()
+                        body: slidesData.toString()
                     }),
                     fetch(brightsideaiConfig.ajaxUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
                         },
-                        body: narrationFormData.toString()
+                        body: narrationData.toString()
                     })
                 ]);
 
-                const [slideResult, narrationResult] = await Promise.all([
-                    slideResponse.json(),
+                const [slidesResult, narrationResult] = await Promise.all([
+                    slidesResponse.json(),
                     narrationResponse.json()
                 ]);
 
-                if (slideResult.success && narrationResult.success) {
-                    // Update both the display and project data
-                    this.slideContent = slideResult.data;
+                console.log('API responses:', { slides: slidesResult, narration: narrationResult }); // Debug log
+
+                if (slidesResult.success && narrationResult.success) {
+                    this.slideContent = slidesResult.data;
                     this.narrationText = narrationResult.data;
-                    this.currentProject.script = slideResult.data;
-                    this.currentProject.narration = narrationResult.data;
-
-                    // Save the changes to the database
-                    const updatedProject = {
-                        ...this.currentProject,
-                        script: slideResult.data,
-                        narration: narrationResult.data
-                    };
-
-                    const saveFormData = new URLSearchParams();
-                    saveFormData.append('action', 'brightsideai_save_project');
-                    saveFormData.append('nonce', brightsideaiConfig.nonce);
-                    saveFormData.append('project', JSON.stringify(updatedProject));
-
-                    const saveResponse = await fetch(brightsideaiConfig.ajaxUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                        },
-                        body: saveFormData.toString()
-                    });
-
-                    const saveResult = await saveResponse.json();
-                    if (saveResult.success) {
-                        this.showToast('Success', 'Script generated and saved successfully!', 'success');
-                    } else {
-                        throw new Error('Failed to save generated script');
+                    
+                    if (this.currentProject) {
+                        this.currentProject.script = slidesResult.data;
+                        this.currentProject.narration = narrationResult.data;
+                        this.currentProject.progress = Math.min(this.currentProject.progress + 20, 100);
+                        this.updateProject(this.currentProject);
                     }
+                    
+                    this.showToast('Success', 'Your webinar script has been generated successfully!', 'success');
                 } else {
-                    throw new Error('Failed to generate script');
+                    const error = slidesResult.data || narrationResult.data || 'Error generating script';
+                    console.error('Generation error:', error);
+                    this.error = error;
+                    this.showToast('Error', this.error, 'error');
                 }
             } catch (error) {
-                console.error('Generation error:', error);
-                this.showToast('Error', error.message || 'Failed to generate script. Please try again.', 'error');
+                console.error('Error:', error);
+                this.error = 'Failed to generate script. Please try again.';
+                this.showToast('Error', this.error, 'error');
             } finally {
                 this.isGenerating = false;
             }
