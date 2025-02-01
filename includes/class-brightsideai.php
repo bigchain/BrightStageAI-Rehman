@@ -23,6 +23,12 @@ class BrightsideAI {
             BRIGHTSIDEAI_VERSION,
             true
         );
+
+        // Add AJAX action for generating text
+        add_action('wp_ajax_brightsideai_generate_text', array($this, 'generate_text'));
+
+        // Add admin_post action for saving API key
+        add_action('admin_post_brightsideai_save_api_key', array($this, 'save_api_key'));
     }
 
     public function add_defer_attribute($tag, $handle) {
@@ -65,6 +71,22 @@ class BrightsideAI {
         );
     
         wp_enqueue_script('brightsideai-admin');
+        wp_enqueue_script(
+            'brightsideai-admin-openai',
+            BRIGHTSIDEAI_URL . 'assets/js/admin-openai.js',
+            array('jquery'),
+            BRIGHTSIDEAI_VERSION,
+            true
+        );
+        
+        wp_localize_script(
+            'brightsideai-admin-openai',
+            'brightsideaiAdmin',
+            array(
+                'ajaxurl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('brightsideai_nonce')
+            )
+        );
     }
 
     public function frontend_enqueue_assets() {
@@ -139,5 +161,65 @@ class BrightsideAI {
         ob_start();
         require_once BRIGHTSIDEAI_PATH . 'templates/app.php';
         return ob_get_clean();
+    }
+
+    public function save_api_key() {
+        if (!current_user_can('manage_options')) {
+            wp_die("Unauthorized");
+        }
+        check_admin_referer('brightsideai_save_api_key');
+        if (isset($_POST['brightsideai_api_key'])) {
+            update_option('brightsideai_openai_key', sanitize_text_field($_POST['brightsideai_api_key']));
+            wp_redirect(add_query_arg('updated', 'true', wp_get_referer()));
+            exit;
+        }
+    }
+
+    public function generate_text() {
+        check_ajax_referer('brightsideai_nonce', 'nonce');
+        $prompt = isset($_POST['prompt']) ? sanitize_text_field($_POST['prompt']) : "";
+        $api_key = get_option('brightsideai_openai_key', '');
+        if (empty($api_key)) {
+            wp_send_json_error("OpenAI API key not set.");
+        }
+        if (empty($prompt)) {
+            wp_send_json_error("Prompt is empty.");
+        }
+        
+        $body = array(
+            "model" => "gpt-3.5-turbo",
+            "messages" => array(
+                array(
+                    "role" => "user",
+                    "content" => $prompt
+                )
+            ),
+            "max_tokens" => 150,
+            "temperature" => 0.7
+        );
+        
+        $args = array(
+            "headers" => array(
+                "Content-Type" => "application/json",
+                "Authorization" => "Bearer $api_key"
+            ),
+            "body" => json_encode($body),
+            "timeout" => 15,
+        );
+        
+        $response = wp_remote_post("https://api.openai.com/v1/chat/completions", $args);
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error($response->get_error_message());
+        }
+        
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (isset($data['choices'][0]['message']['content'])) {
+            wp_send_json_success(trim($data['choices'][0]['message']['content']));
+        } else {
+            $error_message = isset($data['error']['message']) ? $data['error']['message'] : "No text generated.";
+            wp_send_json_error($error_message);
+        }
     }
 }
