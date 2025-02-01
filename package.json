@@ -1,0 +1,14 @@
+{
+    "name": "brightsideai",
+    "version": "1.0.0",
+    "scripts": {
+        "build:css": "tailwindcss -i ./src/css/main.css -o ./assets/css/tailwind.css --minify",
+        "watch:css": "tailwindcss -i ./src/css/main.css -o ./assets/css/tailwind.css --watch"
+    },
+    "devDependencies": {
+        "tailwindcss": "^3.4.1"
+    },
+    "dependencies": {
+        "flowbite": "^3.0.0"
+    }
+}
