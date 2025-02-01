@@ -8,6 +8,10 @@ class BrightsideAI {
         add_action('wp_ajax_brightsideai_save_project', array($this, 'save_project'));
         add_action('wp_ajax_brightsideai_get_projects', array($this, 'get_projects'));
         add_action('wp_ajax_brightsideai_delete_project', array($this, 'delete_project'));
+        add_action('wp_ajax_brightsideai_generate_text', array($this, 'generate_text'));
+        add_action('wp_ajax_brightsideai_update_credits', array($this, 'update_credits'));
+        add_action('wp_ajax_brightsideai_get_credits', array($this, 'get_credits'));
+        add_action('wp_ajax_brightsideai_generate_article', array($this, 'generate_article'));
 
         // Add defer attribute to Alpine.js
         add_filter('script_loader_tag', array($this, 'add_defer_attribute'), 10, 2);
@@ -21,12 +25,7 @@ class BrightsideAI {
         // Add action for saving API key
         add_action('admin_post_brightsideai_save_api_key', array($this, 'save_api_key'));
 
-        // Add AJAX action for generating text
-        add_action('wp_ajax_brightsideai_generate_text', array($this, 'generate_text'));
-
         // New credits endpoints
-        add_action('wp_ajax_brightsideai_update_credits', array($this, 'update_credits'));
-        add_action('wp_ajax_brightsideai_get_credits', array($this, 'get_credits'));
     }
 
     public function init() {
@@ -495,6 +494,107 @@ class BrightsideAI {
             wp_send_json_success('Project deleted successfully');
         } else {
             wp_send_json_error('Failed to delete project');
+        }
+    }
+
+    public function generate_article() {
+        check_ajax_referer('brightsideai_nonce', 'nonce');
+        
+        // Debug logging
+        error_log('Article generation started');
+        error_log('POST data: ' . print_r($_POST, true));
+        
+        // Retrieve and sanitize input fields from the AJAX request
+        $webinar_description = isset($_POST['webinar_description']) ? sanitize_textarea_field($_POST['webinar_description']) : '';
+        $slide_content = isset($_POST['slide_content']) ? sanitize_textarea_field($_POST['slide_content']) : '';
+        $narration_text = isset($_POST['narration_text']) ? sanitize_textarea_field($_POST['narration_text']) : '';
+        $article_context = isset($_POST['article_context']) ? sanitize_textarea_field($_POST['article_context']) : '';
+        
+        if (empty($article_context)) {
+            error_log('Error: Article context is empty');
+            wp_send_json_error('Please provide some context for the article.');
+            return;
+        }
+
+        // Check if we have any webinar content
+        $has_webinar_content = !empty($webinar_description) || !empty($slide_content) || !empty($narration_text);
+        
+        // Build the prompt based on available content
+        if ($has_webinar_content) {
+            $prompt = "Generate a comprehensive, engaging article using the following inputs:\n\n";
+            
+            if (!empty($webinar_description)) {
+                $prompt .= "Webinar Description:\n$webinar_description\n\n";
+            }
+            
+            if (!empty($slide_content)) {
+                $prompt .= "Slide Content (use this for structure):\n$slide_content\n\n";
+            }
+            
+            if (!empty($narration_text)) {
+                $prompt .= "Additional Details from Narration:\n$narration_text\n\n";
+            }
+            
+            $prompt .= "Additional Context for the Article:\n$article_context\n\n";
+            $prompt .= "Please combine all this information into a well-structured article.";
+        } else {
+            // If no webinar content, just use the article context
+            $prompt = "Generate a comprehensive, engaging article based on the following context:\n\n";
+            $prompt .= $article_context;
+            $prompt .= "\n\nPlease create a well-structured article that covers these points effectively.";
+        }
+        
+        error_log('Generated prompt: ' . $prompt);
+        
+        // Call to the OpenAI API
+        $api_url = 'https://api.openai.com/v1/chat/completions';
+        $api_key = get_option('brightsideai_openai_key');
+        
+        if (empty($api_key)) {
+            error_log('Error: OpenAI API key is not set');
+            wp_send_json_error('OpenAI API key is not configured.');
+            return;
+        }
+        
+        $args = array(
+            'body'    => json_encode(array(
+                'model' => 'gpt-3.5-turbo',
+                'messages' => array(
+                    array(
+                        'role' => 'user',
+                        'content' => $prompt
+                    )
+                ),
+                'temperature' => 0.7,
+                'max_tokens' => 1000
+            )),
+            'headers' => array(
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key
+            ),
+            'timeout' => 30
+        );
+        
+        error_log('Making API request with args: ' . print_r($args, true));
+        
+        $response = wp_remote_post($api_url, $args);
+        
+        if (is_wp_error($response)) {
+            error_log('OpenAI API error: ' . $response->get_error_message());
+            wp_send_json_error('OpenAI API error: ' . $response->get_error_message());
+            return;
+        }
+        
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        error_log('API response: ' . print_r($body, true));
+        
+        if (isset($body['choices'][0]['message']['content'])) {
+            $article = trim($body['choices'][0]['message']['content']);
+            error_log('Successfully generated article');
+            wp_send_json_success(array('article' => $article));
+        } else {
+            error_log('Invalid API response: ' . print_r($body, true));
+            wp_send_json_error('Failed to generate article. Please try again.');
         }
     }
 

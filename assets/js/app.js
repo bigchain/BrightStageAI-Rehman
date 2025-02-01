@@ -20,7 +20,9 @@ document.addEventListener('alpine:init', () => {
         webinarDuration: 30,
         slideContent: '',
         narrationText: '',
-        activeMarketingTab: 'press-releases',
+        articleContext: '',
+        generatedArticle: '',
+        activeMarketingTab: 'articles',
         toastVisible: false,
         showEditProjectModal: false,
         selectedPackage: '100',
@@ -623,24 +625,67 @@ document.addEventListener('alpine:init', () => {
         },
 
         // Marketing Suite Methods
-        async generateMarketingContent(type) {
+        async generateArticle() {
+            console.log('Generating article...'); // Debug log
+            
+            if (this.isGenerating) {
+                console.log('Already generating article'); // Debug log
+                return;
+            }
+
+            if (!this.currentProject) {
+                this.showToast('Error', 'Please select a project first.', 'error');
+                return;
+            }
+
+            if (!this.articleContext) {
+                this.showToast('Error', 'Please provide some context for the article.', 'error');
+                return;
+            }
+        
             this.isGenerating = true;
+            this.error = null;
+
             try {
-                // Simulate content generation
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                const content = `Generated ${type} content`;
-                if (this.currentProject) {
-                    this.currentProject.assets = this.currentProject.assets.map(asset => 
-                        asset.type === type ? { ...asset, content, status: 'completed' } : asset
-                    );
-                    this.currentProject.progress = Math.min(this.currentProject.progress + 10, 100);
-                    this.updateProject(this.currentProject);
+                console.log('Making API request...'); // Debug log
+
+                const formData = new URLSearchParams();
+                formData.append('action', 'brightsideai_generate_article');
+                formData.append('nonce', brightsideaiConfig.nonce);
+                formData.append('webinar_description', this.currentProject.enhancedDescription || this.currentProject.detailedDescription || '');
+                formData.append('slide_content', this.currentProject.script || '');
+                formData.append('narration_text', this.currentProject.narration || '');
+                formData.append('article_context', this.articleContext || '');
+
+                const response = await fetch(brightsideaiConfig.ajaxUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                    },
+                    body: formData.toString()
+                });
+
+                const result = await response.json();
+                console.log('API response:', result); // Debug log
+
+                if (result.success) {
+                    this.generatedArticle = result.data.article;
+                    
+                    // Update the project's assets
+                    if (this.currentProject) {
+                        this.currentProject.assets = this.currentProject.assets.map(asset => 
+                            asset.type === 'article' ? { ...asset, content: result.data.article, status: 'completed' } : asset
+                        );
+                        await this.updateProject(this.currentProject);
+                    }
+                    
+                    this.showToast('Success', 'Article generated successfully!', 'success');
+                } else {
+                    throw new Error(result.data || 'Failed to generate article');
                 }
-                
-                this.showToast('Content Generated', `Your ${type} has been generated successfully.`);
             } catch (error) {
-                this.showToast('Generation Failed', 'Failed to generate content. Please try again.', 'error');
+                console.error('Generation error:', error);
+                this.showToast('Error', error.message || 'Failed to generate article. Please try again.', 'error');
             } finally {
                 this.isGenerating = false;
             }
