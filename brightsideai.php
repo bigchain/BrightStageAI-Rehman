@@ -1,11 +1,14 @@
 <?php
 /**
  * Plugin Name: BrightsideAI
- * Description: AI-powered webinar creation platform
+ * Description: Enhances webinar scripts with AI.
  * Version: 1.0.0
  * Author: Your Name
- * Text Domain: brightsideai
  */
+
+if ( ! defined( 'BRIGHTSIDEAI_FILE' ) ) {
+    define( 'BRIGHTSIDEAI_FILE', __FILE__ );
+}
 
 if (!defined('ABSPATH')) {
     exit;
